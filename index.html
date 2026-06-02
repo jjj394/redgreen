@@ -10,83 +10,124 @@
       font-family: Arial, "Microsoft JhengHei", sans-serif;
       background: #f4f6f8;
       margin: 0;
-      padding: 20px;
+      padding: 10px;
+      font-size: 13px;
     }
 
     .container {
-      max-width: 720px;
+      max-width: 680px;
       margin: auto;
     }
 
     h1 {
       text-align: center;
+      font-size: 20px;
+      margin: 8px 0;
     }
 
     .user-info {
       text-align: center;
-      margin-bottom: 20px;
       color: #555;
+      margin-bottom: 8px;
+      font-size: 12px;
+    }
+
+    .summary {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 6px;
+      margin-bottom: 8px;
+    }
+
+    .summary-box {
+      background: white;
+      border-radius: 10px;
+      padding: 8px;
+      text-align: center;
+      box-shadow: 0 1px 5px rgba(0,0,0,0.08);
+    }
+
+    .summary-number {
+      font-size: 20px;
+      font-weight: bold;
     }
 
     .card {
       background: white;
-      border-radius: 14px;
-      padding: 18px;
-      margin-bottom: 14px;
-      box-shadow: 0 2px 10px rgba(0,0,0,0.08);
+      border-radius: 10px;
+      padding: 8px 10px;
+      margin-bottom: 6px;
+      box-shadow: 0 1px 5px rgba(0,0,0,0.08);
     }
 
-    .top {
-      display: flex;
-      justify-content: space-between;
+    .card.stale {
+      opacity: 0.45;
+      background: #eeeeee;
+    }
+
+    .row-main {
+      display: grid;
+      grid-template-columns: 24px 70px 1fr;
       align-items: center;
-      gap: 12px;
-    }
-
-    .name {
-      font-size: 24px;
-      font-weight: bold;
-    }
-
-    .status {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      margin: 10px 0;
-      font-size: 18px;
+      gap: 6px;
     }
 
     .light {
-      width: 22px;
-      height: 22px;
+      width: 16px;
+      height: 16px;
       border-radius: 50%;
-      background: red;
-      box-shadow: 0 0 8px red;
+      background: #c62828;
+      box-shadow: 0 0 6px #c62828;
     }
 
-    .light.on {
+    .light.in {
       background: limegreen;
-      box-shadow: 0 0 8px limegreen;
+      box-shadow: 0 0 6px limegreen;
     }
 
-    .location,
-    .time {
+    .light.unknown {
+      background: #fbc02d;
+      box-shadow: 0 0 6px #fbc02d;
+    }
+
+    .name {
+      font-size: 16px;
+      font-weight: bold;
+    }
+
+    .status-text {
+      font-size: 14px;
+      font-weight: bold;
+    }
+
+    .detail {
+      margin-left: 30px;
+      margin-top: 3px;
       color: #555;
-      margin-top: 6px;
+      font-size: 12px;
+      line-height: 1.4;
+    }
+
+    .stale-text {
+      color: #999;
+      font-weight: bold;
     }
 
     .buttons {
-      margin-top: 14px;
-      display: flex;
-      gap: 10px;
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 5px;
+      margin-top: 6px;
+    }
+
+    button, select {
+      border: none;
+      border-radius: 8px;
+      padding: 6px 4px;
+      font-size: 12px;
     }
 
     button {
-      flex: 1;
-      padding: 12px;
-      border: none;
-      border-radius: 10px;
-      font-size: 16px;
       cursor: pointer;
       color: white;
     }
@@ -99,20 +140,59 @@
       background: #c62828;
     }
 
-    .readonly {
-      color: #999;
-      font-size: 14px;
-      margin-top: 12px;
+    .btn-unknown {
+      background: #f9a825;
+      color: #222;
     }
 
-    .links {
-      background: #fff;
-      padding: 16px;
-      border-radius: 12px;
-      margin-bottom: 20px;
-      font-size: 14px;
-      color: #444;
-      word-break: break-all;
+    .out-panel {
+      display: none;
+      grid-template-columns: 1fr auto;
+      gap: 5px;
+      margin-top: 6px;
+    }
+
+    .out-panel.show {
+      display: grid;
+    }
+
+    .confirm-out {
+      background: #555;
+      color: white;
+      padding: 6px 10px;
+    }
+
+    .readonly {
+      color: #999;
+      font-size: 12px;
+      margin-top: 4px;
+      margin-left: 30px;
+    }
+
+    @media (max-width: 480px) {
+      body {
+        padding: 6px;
+      }
+
+      .row-main {
+        grid-template-columns: 22px 58px 1fr;
+      }
+
+      .name {
+        font-size: 15px;
+      }
+
+      .status-text {
+        font-size: 13px;
+      }
+
+      .buttons {
+        grid-template-columns: repeat(3, 1fr);
+      }
+
+      button, select {
+        font-size: 11px;
+      }
     }
   </style>
 </head>
@@ -120,14 +200,21 @@
 <body>
   <div class="container">
     <h1>辦公室狀態</h1>
-
     <div class="user-info" id="userInfo"></div>
 
-    <div class="links">
-      <strong>連結格式：</strong><br>
-      一般來賓：?user=Guest<br>
-      一般使用者：?user=Roy / Jack / Jaren / Jax / Chris / Anli<br>
-      管理員：?user=Joey / Anli
+    <div class="summary">
+      <div class="summary-box">
+        <div>在辦公室</div>
+        <div class="summary-number" id="countIn">0</div>
+      </div>
+      <div class="summary-box">
+        <div>外出</div>
+        <div class="summary-number" id="countOut">0</div>
+      </div>
+      <div class="summary-box">
+        <div>沒看到</div>
+        <div class="summary-number" id="countUnknown">0</div>
+      </div>
     </div>
 
     <div id="list"></div>
@@ -160,6 +247,7 @@
 
     const people = ["Roy", "Jack", "Jaren", "Jax", "Chris", "Anli"];
     const admins = ["Joey", "Anli"];
+    const locations = ["請假", "6F_量測", "1F_RF", "大地遊戲"];
 
     const params = new URLSearchParams(window.location.search);
     const currentUser = params.get("user") || "Guest";
@@ -167,12 +255,14 @@
     const isGuest = currentUser === "Guest";
     const isAdmin = admins.includes(currentUser);
 
+    const statusData = {};
+
     document.getElementById("userInfo").textContent =
       isAdmin
-        ? `目前身份：${currentUser}（管理員，可修改全部）`
+        ? `目前身份：${currentUser}（管理員）`
         : isGuest
           ? "目前身份：Guest（只能查看）"
-          : `目前身份：${currentUser}（只能修改自己）`;
+          : `目前身份：${currentUser}`;
 
     function canEdit(name) {
       if (isGuest) return false;
@@ -194,7 +284,6 @@
 
       return new Intl.DateTimeFormat("zh-TW", {
         timeZone: "Asia/Taipei",
-        year: "numeric",
         month: "2-digit",
         day: "2-digit",
         hour: "2-digit",
@@ -204,17 +293,20 @@
     }
 
     function isAfterTaiwanEightAM() {
-      const now = new Date();
-
       const hour = Number(
         new Intl.DateTimeFormat("zh-TW", {
           timeZone: "Asia/Taipei",
           hour: "2-digit",
           hour12: false
-        }).format(now)
+        }).format(new Date())
       );
 
       return hour >= 8;
+    }
+
+    function isStale(timestamp) {
+      if (!timestamp) return true;
+      return Date.now() - timestamp > 4 * 60 * 60 * 1000;
     }
 
     async function dailyResetIfNeeded() {
@@ -231,7 +323,8 @@
       people.forEach(name => {
         updates[`officeStatus/${name}`] = {
           inOffice: false,
-          location: "待確認",
+          statusType: "unknown",
+          location: "",
           updatedAt: Date.now(),
           updatedBy: "System"
         };
@@ -244,45 +337,126 @@
 
     await dailyResetIfNeeded();
 
-    const list = document.getElementById("list");
+    function getStatusRank(data) {
+      if (data.statusType === "in" || data.inOffice === true) return 1;
+      if (data.statusType === "unknown") return 2;
+      return 3;
+    }
 
-    people.forEach(name => {
-      const editable = canEdit(name);
+    function getStatusText(data) {
+      if (data.statusType === "in" || data.inOffice === true) return "在辦公室";
+      if (data.statusType === "unknown") return "沒看到人";
+      return "外出";
+    }
 
-      list.innerHTML += `
-        <div class="card">
-          <div class="top">
-            <div class="name">${name}</div>
+    function renderList() {
+      const list = document.getElementById("list");
+
+      const sortedPeople = [...people].sort((a, b) => {
+        const dataA = statusData[a] || {};
+        const dataB = statusData[b] || {};
+
+        const rankA = getStatusRank(dataA);
+        const rankB = getStatusRank(dataB);
+
+        if (rankA !== rankB) return rankA - rankB;
+        return a.localeCompare(b);
+      });
+
+      let countIn = 0;
+      let countOut = 0;
+      let countUnknown = 0;
+
+      sortedPeople.forEach(name => {
+        const data = statusData[name] || {};
+
+        if (data.statusType === "in" || data.inOffice === true) {
+          countIn++;
+        } else if (data.statusType === "unknown") {
+          countUnknown++;
+        } else {
+          countOut++;
+        }
+      });
+
+      document.getElementById("countIn").textContent = countIn;
+      document.getElementById("countOut").textContent = countOut;
+      document.getElementById("countUnknown").textContent = countUnknown;
+
+      list.innerHTML = "";
+
+      sortedPeople.forEach(name => {
+        const data = statusData[name] || {};
+        const editable = canEdit(name);
+        const statusType = data.statusType || (data.inOffice ? "in" : "out");
+        const stale = isStale(data.updatedAt);
+        const statusText = getStatusText(data);
+
+        let lightClass = "";
+        if (statusType === "in") lightClass = "in";
+        if (statusType === "unknown") lightClass = "unknown";
+
+        const locationText =
+          statusType === "out"
+            ? `去向：${data.location || "未填寫"}`
+            : "";
+
+        const staleText = stale ? `<span class="stale-text">超過 4 小時未更新</span>` : "";
+
+        const options = locations.map(loc => {
+          const selected = data.location === loc ? "selected" : "";
+          return `<option value="${loc}" ${selected}>${loc}</option>`;
+        }).join("");
+
+        list.innerHTML += `
+          <div class="card ${stale ? "stale" : ""}">
+            <div class="row-main">
+              <div class="light ${lightClass}"></div>
+              <div class="name">${name}</div>
+              <div class="status-text">${statusText}</div>
+            </div>
+
+            <div class="detail">
+              ${locationText ? `<div>${locationText}</div>` : ""}
+              <div>更新：${taiwanTimeText(data.updatedAt)}　${staleText}</div>
+              ${data.updatedBy ? `<div>更新者：${data.updatedBy}</div>` : ""}
+            </div>
+
+            ${
+              editable
+                ? `
+                  <div class="buttons">
+                    <button class="btn-in" onclick="setInOffice('${name}')">在</button>
+                    <button class="btn-out" onclick="toggleOutPanel('${name}')">外出</button>
+                    <button class="btn-unknown" onclick="setUnknown('${name}')">沒看到</button>
+                  </div>
+
+                  <div class="out-panel" id="outPanel-${name}">
+                    <select id="location-${name}">
+                      ${options}
+                    </select>
+                    <button class="confirm-out" onclick="setOutOffice('${name}')">確認</button>
+                  </div>
+                `
+                : `<div class="readonly">只能查看</div>`
+            }
           </div>
+        `;
+      });
+    }
 
-          <div class="status">
-            <div id="${name}-light" class="light"></div>
-            <div id="${name}-statusText">讀取中...</div>
-          </div>
-
-          <div class="location" id="${name}-location"></div>
-          <div class="time" id="${name}-time"></div>
-          <div class="time" id="${name}-updatedBy"></div>
-
-          ${
-            editable
-              ? `
-                <div class="buttons">
-                  <button class="btn-in" onclick="setInOffice('${name}')">在辦公室</button>
-                  <button class="btn-out" onclick="setOutOffice('${name}')">外出 / 不在</button>
-                </div>
-              `
-              : `<div class="readonly">只能查看</div>`
-          }
-        </div>
-      `;
-    });
+    window.toggleOutPanel = function(name) {
+      const panel = document.getElementById(`outPanel-${name}`);
+      if (!panel) return;
+      panel.classList.toggle("show");
+    };
 
     window.setInOffice = async function(name) {
       if (!canEdit(name)) return;
 
       await set(ref(db, "officeStatus/" + name), {
         inOffice: true,
+        statusType: "in",
         location: "",
         updatedAt: Date.now(),
         updatedBy: currentUser
@@ -292,13 +466,25 @@
     window.setOutOffice = async function(name) {
       if (!canEdit(name)) return;
 
-      const location = prompt("請輸入目前去向，例如：客戶拜訪、WFH、請假、外出用餐");
-
-      if (location === null) return;
+      const select = document.getElementById(`location-${name}`);
+      const location = select ? select.value : "未填寫";
 
       await set(ref(db, "officeStatus/" + name), {
         inOffice: false,
-        location: location.trim() || "未填寫",
+        statusType: "out",
+        location: location,
+        updatedAt: Date.now(),
+        updatedBy: currentUser
+      });
+    };
+
+    window.setUnknown = async function(name) {
+      if (!canEdit(name)) return;
+
+      await set(ref(db, "officeStatus/" + name), {
+        inOffice: false,
+        statusType: "unknown",
+        location: "",
         updatedAt: Date.now(),
         updatedBy: currentUser
       });
@@ -308,27 +494,8 @@
       const personRef = ref(db, "officeStatus/" + name);
 
       onValue(personRef, snapshot => {
-        const data = snapshot.val() || {};
-
-        const isInOffice = data.inOffice === true;
-        const light = document.getElementById(`${name}-light`);
-        const statusText = document.getElementById(`${name}-statusText`);
-        const locationText = document.getElementById(`${name}-location`);
-        const timeText = document.getElementById(`${name}-time`);
-        const updatedByText = document.getElementById(`${name}-updatedBy`);
-
-        if (isInOffice) {
-          light.classList.add("on");
-          statusText.textContent = "在辦公室";
-          locationText.textContent = "";
-        } else {
-          light.classList.remove("on");
-          statusText.textContent = "不在辦公室";
-          locationText.textContent = "去向：" + (data.location || "待確認");
-        }
-
-        timeText.textContent = "最後更新：" + taiwanTimeText(data.updatedAt);
-        updatedByText.textContent = data.updatedBy ? "更新者：" + data.updatedBy : "";
+        statusData[name] = snapshot.val() || {};
+        renderList();
       });
     });
   </script>
