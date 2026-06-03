@@ -307,11 +307,9 @@
 
     let currentUser = "Guest";
 
-    // 1. 優先檢查是否有帶金鑰 (key)
     if (userKey && USER_KEYS[userKey]) {
       currentUser = USER_KEYS[userKey];
     } 
-    // 2. 若沒帶金鑰，檢查是否有帶 user 參數
     else if (userParam) {
       if (admins.includes(userParam)) {
         console.warn(`拒絕未授權的管理員登入嘗試: ${userParam}`);
@@ -333,7 +331,6 @@
           ? "Currently viewing as Guest (Read-only)"
           : `目前身份：${currentUser}`;
 
-    // 顯示管理員專屬日誌面板
     if (isAdmin) {
       const panel = document.getElementById("logPanel");
       if (panel) panel.style.display = "block";
@@ -384,7 +381,6 @@
       return Date.now() - timestamp > 4 * 60 * 60 * 1000;
     }
 
-    // ✍️ 寫入日誌到 Firebase (加上安全防護，失敗也不會當機)
     async function writeLog(targetName, action, detail = "") {
       try {
         const logRef = ref(db, "logs");
@@ -396,7 +392,7 @@
           timestamp: Date.now()
         });
       } catch (e) {
-        console.error("寫入日誌失敗（可能需要調整 Firebase Rules 權限）：", e);
+        console.error("寫入日誌失敗：", e);
       }
     }
 
@@ -431,7 +427,6 @@
       }
     }
 
-    // 先執行重置，若出錯不影響後續載入
     dailyResetIfNeeded().catch(e => console.error(e));
 
     function getStatusRank(data) {
@@ -524,16 +519,16 @@
               editable
                 ? `
                   <div class="buttons">
-                    <button class="btn-in" onclick="setInOffice('${name}')">在</button>
+                    <button class="btn-in" onclick="confirmInOffice('${name}')">在</button>
                     <button class="btn-out" onclick="toggleOutPanel('${name}')">外出</button>
-                    <button class="btn-unknown" onclick="setUnknown('${name}')">沒看到</button>
+                    <button class="btn-unknown" onclick="confirmUnknown('${name}')">沒看到</button>
                   </div>
 
                   <div class="out-panel" id="outPanel-${name}">
                     <select id="location-${name}">
                       ${options}
                     </select>
-                    <button class="confirm-out" onclick="setOutOffice('${name}')">確認</button>
+                    <button class="confirm-out" onclick="confirmOutOffice('${name}')">確認</button>
                   </div>
                 `
                 : `<div class="readonly">只能查看</div>`
@@ -549,9 +544,15 @@
       panel.classList.toggle("show");
     };
 
-    window.setInOffice = async function(name) {
+    // 🙋‍♂️ 在辦公室 - 確認視窗
+    window.confirmInOffice = function(name) {
       if (!canEdit(name)) return;
+      if (confirm(`確定要將 ${name} 的狀態設為「在辦公室」嗎？`)) {
+        setInOffice(name);
+      }
+    };
 
+    async function setInOffice(name) {
       try {
         await set(ref(db, "officeStatus/" + name), {
           inOffice: true,
@@ -564,15 +565,21 @@
       } catch (e) {
         console.error(e);
       }
+    }
+
+    // 🚗 外出 - 確認視窗
+    window.confirmOutOffice = function(name) {
+      if (!canEdit(name)) return;
+      const select = document.getElementById(`location-${name}`);
+      const location = select ? select.value : "未填寫";
+
+      if (confirm(`確定要將 ${name} 的狀態設為「外出」並前往「${location}」嗎？`)) {
+        setOutOffice(name, location);
+      }
     };
 
-    window.setOutOffice = async function(name) {
-      if (!canEdit(name)) return;
-
+    async function setOutOffice(name, location) {
       try {
-        const select = document.getElementById(`location-${name}`);
-        const location = select ? select.value : "未填寫";
-
         await set(ref(db, "officeStatus/" + name), {
           inOffice: false,
           statusType: "out",
@@ -584,11 +591,17 @@
       } catch (e) {
         console.error(e);
       }
+    }
+
+    // ❓ 沒看到 - 確認視窗
+    window.confirmUnknown = function(name) {
+      if (!canEdit(name)) return;
+      if (confirm(`確定要將 ${name} 的狀態設為「沒看到人」嗎？`)) {
+        setUnknown(name);
+      }
     };
 
-    window.setUnknown = async function(name) {
-      if (!canEdit(name)) return;
-
+    async function setUnknown(name) {
       try {
         await set(ref(db, "officeStatus/" + name), {
           inOffice: false,
@@ -601,7 +614,7 @@
       } catch (e) {
         console.error(e);
       }
-    };
+    }
 
     people.forEach(name => {
       const personRef = ref(db, "officeStatus/" + name);
@@ -614,7 +627,6 @@
       });
     });
 
-    // 📜 監聽歷史紀錄 (僅管理員載入，並加上錯誤處理)
     if (isAdmin) {
       const logsRef = ref(db, "logs");
       onValue(logsRef, snapshot => {
@@ -627,10 +639,7 @@
           return;
         }
 
-        // 將物件轉成陣列並依時間由新到舊排序
         const sortedLogs = Object.values(data).sort((a, b) => b.timestamp - a.timestamp);
-        
-        // 限制只顯示最新 30 筆，避免畫面過長
         const recentLogs = sortedLogs.slice(0, 30);
 
         logListDiv.innerHTML = recentLogs.map(log => {
@@ -643,9 +652,7 @@
           `;
         }).join("");
       }, error => {
-        console.error("讀取 logs 失敗（可能需要調整 Firebase Rules 權限）：", error);
-        const logListDiv = document.getElementById("logList");
-        if (logListDiv) logListDiv.innerHTML = "讀取紀錄失敗，請確認 Firebase Rules 權限。";
+        console.error("讀取 logs 失敗：", error);
       });
     }
   </script>
