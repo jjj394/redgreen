@@ -245,12 +245,43 @@
     const app = initializeApp(firebaseConfig);
     const db = getDatabase(app);
 
-    const people = ["Roy", "Jack", "Jaren", "Jax", "Chris", "Anli"];
-    const admins = ["Joey", "Anli", "Frank"];
+    // 🔑 安全金鑰對照表（請自行更換右側的亂碼金鑰，確保只有管理員知道）
+    const USER_KEYS = {
+      "joey8899": "Joey",     // 管理員 Joey 的金鑰
+      "anli7766": "Anli",     // 管理員/一般人 Anli 的金鑰
+      "frank5544": "Frank",   // 管理員 Frank 的金鑰
+      "roy1122": "Roy",       // 一般人 Roy 的金鑰（可選，用舊網址亦可登入）
+      "jack2233": "Jack",     // 一般人 Jack 的金鑰（可選）
+      "jaren3344": "Jaren",   // 管理員 Jaren 的金鑰（可選）
+      "jax4455": "Jax",       // 一般人 Jax 的金鑰（可選）
+      "chris5566": "Chris"    // 一般人 Chris 的金鑰（可選）
+    };
+
+    const people = ["Roy", "Jack", "Jax", "Chris", "Anli"];
+    const admins = ["Joey", "Anli", "Frank", "Jaren"];
     const locations = ["請假", "6F_量測", "1F_RF", "大地遊戲"];
 
     const params = new URLSearchParams(window.location.search);
-    const currentUser = params.get("user") || "Guest";
+    const userKey = params.get("key");
+    const userParam = params.get("user");
+
+    let currentUser = "Guest";
+
+    // 1. 優先檢查是否有帶金鑰 (key)
+    if (userKey && USER_KEYS[userKey]) {
+      currentUser = USER_KEYS[userKey];
+    } 
+    // 2. 若沒帶金鑰，檢查是否有帶 user 參數
+    else if (userParam) {
+      // 安全檢查：如果 user 參數企圖登入管理員，一律拒絕並設為 Guest
+      if (admins.includes(userParam)) {
+        console.warn(`拒絕未授權的管理員登入嘗試: ${userParam}`);
+        currentUser = "Guest";
+      } else if (people.includes(userParam)) {
+        // 一般使用者允許直接用 user 參數登入
+        currentUser = userParam;
+      }
+    }
 
     const isGuest = currentUser === "Guest";
     const isAdmin = admins.includes(currentUser);
