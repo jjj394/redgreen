@@ -169,6 +169,39 @@
       margin-left: 30px;
     }
 
+    /* 📜 歷史紀錄面板樣式 */
+    .log-panel {
+      margin-top: 20px;
+      background: #fff;
+      border-radius: 10px;
+      padding: 12px;
+      box-shadow: 0 1px 5px rgba(0,0,0,0.08);
+      display: none; /* 預設隱藏，僅管理員可見 */
+    }
+
+    .log-title {
+      font-size: 14px;
+      font-weight: bold;
+      margin-bottom: 8px;
+      color: #333;
+      border-bottom: 1px solid #eee;
+      padding-bottom: 5px;
+    }
+
+    .log-list {
+      max-height: 180px;
+      overflow-y: auto;
+      font-family: monospace;
+      font-size: 11px;
+      color: #666;
+      line-height: 1.6;
+    }
+
+    .log-item {
+      border-bottom: 1px dashed #f0f0f0;
+      padding: 4px 0;
+    }
+
     @media (max-width: 480px) {
       body {
         padding: 6px;
@@ -218,6 +251,12 @@
     </div>
 
     <div id="list"></div>
+
+    <!-- 📜 歷史紀錄面板 (僅管理員可見) -->
+    <div class="log-panel" id="logPanel">
+      <div class="log-title">📋 近期動作紀錄 (僅管理員可見)</div>
+      <div class="log-list" id="logList">載入紀錄中...</div>
+    </div>
   </div>
 
   <script type="module">
@@ -228,6 +267,7 @@
       onValue,
       set,
       get,
+      push,
       update
     } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
 
@@ -295,6 +335,11 @@
           ? "目前身份：Guest（只能查看）"
           : `目前身份：${currentUser}`;
 
+    // 顯示管理員專屬日誌面板
+    if (isAdmin) {
+      document.getElementById("logPanel").style.display = "block";
+    }
+
     function canEdit(name) {
       if (isGuest) return false;
       if (isAdmin) return true;
@@ -340,6 +385,22 @@
       return Date.now() - timestamp > 4 * 60 * 60 * 1000;
     }
 
+    // ✍️ 寫入日誌到 Firebase
+    async function writeLog(targetName, action, detail = "") {
+      try {
+        const logRef = ref(db, "logs");
+        await push(logRef, {
+          operator: currentUser,
+          target: targetName,
+          action: action,
+          detail: detail,
+          timestamp: Date.now()
+        });
+      } catch (e) {
+        console.error("寫入日誌失敗", e);
+      }
+    }
+
     async function dailyResetIfNeeded() {
       if (!isAfterTaiwanEightAM()) return;
 
@@ -364,6 +425,7 @@
       updates["system/lastResetDate"] = today;
 
       await update(ref(db), updates);
+      await writeLog("System", "每日重置", "系統自動重置所有人員狀態為沒看到");
     }
 
     await dailyResetIfNeeded();
@@ -492,6 +554,7 @@
         updatedAt: Date.now(),
         updatedBy: currentUser
       });
+      await writeLog(name, "設為在辦公室");
     };
 
     window.setOutOffice = async function(name) {
@@ -507,6 +570,7 @@
         updatedAt: Date.now(),
         updatedBy: currentUser
       });
+      await writeLog(name, "設為外出", `去向：${location}`);
     };
 
     window.setUnknown = async function(name) {
@@ -519,6 +583,7 @@
         updatedAt: Date.now(),
         updatedBy: currentUser
       });
+      await writeLog(name, "設為沒看到");
     };
 
     people.forEach(name => {
@@ -529,6 +594,18 @@
         renderList();
       });
     });
-  </script>
-</body>
-</html>
+
+    // 📜 監聽歷史紀錄 (僅管理員載入)
+    if (isAdmin) {
+      const logsRef = ref(db, "logs");
+      onValue(logsRef, snapshot => {
+        const logListDiv = document.getElementById("logList");
+        const data = snapshot.val();
+        if (!data) {
+          logListDiv.innerHTML = "尚無任何動作紀錄。";
+          return;
+        }
+
+        // 將物件轉成陣列並依時間由新到舊排序
+        const sortedLogs = Object.values(data).sort((a, b) => b.timestamp - a.timestamp);
+        
