@@ -236,6 +236,63 @@
       font-size: 10px;
     }
 
+    .modal-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.45);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 9999;
+      padding: 16px;
+    }
+
+    .modal-backdrop.show {
+      display: flex;
+    }
+
+    .modal {
+      width: 100%;
+      max-width: 360px;
+      background: white;
+      border-radius: 14px;
+      padding: 18px;
+      box-shadow: 0 8px 30px rgba(0,0,0,0.25);
+    }
+
+    .modal-title {
+      font-size: 18px;
+      font-weight: bold;
+      margin-bottom: 12px;
+    }
+
+    .modal-content {
+      color: #333;
+      line-height: 1.7;
+      margin-bottom: 16px;
+    }
+
+    .modal-actions {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+
+    .modal-cancel {
+      background: #777;
+      color: white;
+    }
+
+    .modal-confirm {
+      background: #1565c0;
+      color: white;
+    }
+
+    .modal-danger {
+      background: #c62828;
+      color: white;
+    }
+
     @media (max-width: 480px) {
       body {
         padding: 6px;
@@ -286,11 +343,22 @@
       <div class="log-title">
         <span>📋 近期動作紀錄</span>
         <div class="log-actions">
-          <button class="device-btn" onclick="renameDevice()">裝置名稱</button>
-          <button class="clear-log-btn" onclick="clearLogs()">清除 Log</button>
+          <button class="device-btn" id="renameDeviceBtn">裝置名稱</button>
+          <button class="clear-log-btn" id="clearLogsBtn">清除 Log</button>
         </div>
       </div>
       <div class="log-list" id="logList">載入紀錄中...</div>
+    </div>
+  </div>
+
+  <div class="modal-backdrop" id="modalBackdrop">
+    <div class="modal">
+      <div class="modal-title" id="modalTitle">確認操作</div>
+      <div class="modal-content" id="modalContent"></div>
+      <div class="modal-actions">
+        <button class="modal-cancel" id="modalCancelBtn">取消</button>
+        <button class="modal-confirm" id="modalConfirmBtn">確認</button>
+      </div>
     </div>
   </div>
 
@@ -335,6 +403,7 @@
     const admins = ["Joey", "Anli", "Frank", "Jaren"];
     const locations = ["請假", "6F_量測", "1F_RF", "大地遊戲"];
     const MAX_LOG_COUNT = 300;
+    const ACTION_TOKEN_TTL_MS = 10000;
 
     const params = new URLSearchParams(window.location.search);
     const userKey = params.get("key");
@@ -358,6 +427,7 @@
     const statusData = {};
     let isWriting = false;
     let isCleaningLogs = false;
+    let pendingAction = null;
 
     function makeId(prefix) {
       return prefix + "-" + Math.random().toString(36).slice(2, 10) + "-" + Date.now().toString(36);
@@ -388,24 +458,28 @@
     let deviceName = getDeviceName();
     const sessionId = makeId("session");
 
-    function getClientInfo() {
+    function getClientInfo(extra = {}) {
       return {
-        deviceName: deviceName,
-        deviceId: deviceId,
-        sessionId: sessionId
+        deviceName,
+        deviceId,
+        sessionId,
+        ...extra
       };
     }
 
-    document.getElementById("userInfo").textContent =
-      isAdmin
-        ? `目前身份：${currentUser}（管理員）｜裝置：${deviceName}`
-        : isGuest
-          ? `Currently viewing as Guest (Read-only)｜裝置：${deviceName}`
-          : `目前身份：${currentUser}｜裝置：${deviceName}`;
+    function refreshUserInfo() {
+      document.getElementById("userInfo").textContent =
+        isAdmin
+          ? `目前身份：${currentUser}（管理員）｜裝置：${deviceName}`
+          : isGuest
+            ? `Currently viewing as Guest (Read-only)｜裝置：${deviceName}`
+            : `目前身份：${currentUser}｜裝置：${deviceName}`;
+    }
+
+    refreshUserInfo();
 
     if (isAdmin) {
-      const panel = document.getElementById("logPanel");
-      if (panel) panel.style.display = "block";
+      document.getElementById("logPanel").style.display = "block";
     }
 
     function canEdit(name) {
@@ -482,15 +556,17 @@
       }
     }
 
-    async function writeLog(targetName, action, detail = "", operatorOverride = null, skipCleanup = false) {
+    async function writeLog(targetName, action, detail = "", operatorOverride = null, skipCleanup = false, token = "") {
       try {
         await push(ref(db, "logs"), {
           operator: operatorOverride || currentUser,
           target: targetName,
-          action: action,
-          detail: detail,
+          action,
+          detail,
           timestamp: Date.now(),
-          client: getClientInfo()
+          client: getClientInfo({
+            actionToken: token || ""
+          })
         });
 
         if (!skipCleanup) {
@@ -522,9 +598,9 @@
             updatedBy: "System",
             client: {
               reason: "dailyReset",
-              deviceName: deviceName,
-              deviceId: deviceId,
-              sessionId: sessionId
+              deviceName,
+              deviceId,
+              sessionId
             }
           };
         });
@@ -554,7 +630,12 @@
 
     function setButtonsDisabled(disabled) {
       document.querySelectorAll("button").forEach(btn => {
-        if (!btn.classList.contains("clear-log-btn") && !btn.classList.contains("device-btn")) {
+        if (
+          !btn.classList.contains("clear-log-btn") &&
+          !btn.classList.contains("device-btn") &&
+          !btn.classList.contains("modal-cancel") &&
+          !btn.classList.contains("modal-confirm")
+        ) {
           btn.disabled = disabled;
         }
       });
@@ -567,7 +648,6 @@
       const sortedPeople = [...people].sort((a, b) => {
         const dataA = statusData[a] || {};
         const dataB = statusData[b] || {};
-
         const rankA = getStatusRank(dataA);
         const rankB = getStatusRank(dataB);
 
@@ -617,7 +697,7 @@
         }).join("");
 
         list.innerHTML += `
-          <div class="card ${stale ? "stale" : ""}">
+          <div class="card ${stale ? "stale" : ""}" data-person="${name}">
             <div class="row-main">
               <div class="light ${lightClass}"></div>
               <div class="name">${name}</div>
@@ -634,16 +714,16 @@
               editable
                 ? `
                   <div class="buttons">
-                    <button class="btn-in" onclick="confirmInOffice('${name}')">在</button>
-                    <button class="btn-out" onclick="toggleOutPanel('${name}')">外出</button>
-                    <button class="btn-unknown" onclick="confirmUnknown('${name}')">沒看到</button>
+                    <button class="btn-in" data-action="in" data-name="${name}">在</button>
+                    <button class="btn-out" data-action="toggle-out" data-name="${name}">外出</button>
+                    <button class="btn-unknown" data-action="unknown" data-name="${name}">沒看到</button>
                   </div>
 
                   <div class="out-panel" id="outPanel-${name}">
                     <select id="location-${name}">
                       ${options}
                     </select>
-                    <button class="confirm-out" onclick="confirmOutOffice('${name}')">確認</button>
+                    <button class="confirm-out" data-action="out-confirm" data-name="${name}">確認</button>
                   </div>
                 `
                 : `<div class="readonly">只能查看</div>`
@@ -653,151 +733,253 @@
       });
     }
 
-    window.toggleOutPanel = function(name) {
+    function openModal(title, content, confirmText = "確認", danger = false) {
+      document.getElementById("modalTitle").textContent = title;
+      document.getElementById("modalContent").innerHTML = content;
+      const confirmBtn = document.getElementById("modalConfirmBtn");
+      confirmBtn.textContent = confirmText;
+      confirmBtn.className = danger ? "modal-danger" : "modal-confirm";
+      document.getElementById("modalBackdrop").classList.add("show");
+    }
+
+    function closeModal() {
+      document.getElementById("modalBackdrop").classList.remove("show");
+      pendingAction = null;
+    }
+
+    function createPendingAction(type, name, location = "") {
       if (!canEdit(name)) return;
       if (isWriting) return;
 
-      const panel = document.getElementById(`outPanel-${name}`);
-      if (!panel) return;
+      const token = makeId("action");
+      const createdAt = Date.now();
 
-      panel.classList.toggle("show");
-    };
+      pendingAction = {
+        token,
+        type,
+        name,
+        location,
+        createdAt,
+        expiresAt: createdAt + ACTION_TOKEN_TTL_MS
+      };
 
-    window.confirmInOffice = function(name) {
-      if (!canEdit(name)) return;
-      if (isWriting) return;
+      let statusText = "";
+      let detail = "";
 
-      if (confirm(`確定要將 ${name} 的狀態設為「在辦公室」嗎？`)) {
-        setInOffice(name);
+      if (type === "in") {
+        statusText = "在辦公室";
+      } else if (type === "unknown") {
+        statusText = "沒看到人";
+      } else if (type === "out") {
+        statusText = "外出";
+        detail = `<div>去向：<strong>${location}</strong></div>`;
       }
-    };
 
-    async function setInOffice(name) {
+      openModal(
+        "確認修改狀態",
+        `
+          <div>修改人：<strong>${currentUser}</strong></div>
+          <div>修改對象：<strong>${name}</strong></div>
+          <div>新狀態：<strong>${statusText}</strong></div>
+          ${detail}
+          <div style="margin-top:8px;color:#777;font-size:12px;">
+            此確認在 10 秒後失效。
+          </div>
+        `,
+        "確認修改",
+        false
+      );
+    }
+
+    function validatePendingAction() {
+      if (!pendingAction) return false;
+      if (!pendingAction.token) return false;
+      if (Date.now() > pendingAction.expiresAt) return false;
+      if (!canEdit(pendingAction.name)) return false;
+      if (!["in", "out", "unknown", "clearLogs"].includes(pendingAction.type)) return false;
+      return true;
+    }
+
+    async function executePendingAction() {
+      if (!validatePendingAction()) {
+        closeModal();
+        alert("操作已失效，請重新點選。");
+        return;
+      }
+
+      const action = { ...pendingAction };
+      closeModal();
+
+      if (action.type === "clearLogs") {
+        await executeClearLogs(action.token);
+        return;
+      }
+
+      await commitStatusChange(action);
+    }
+
+    async function commitStatusChange(action) {
       if (isWriting) return;
+
       isWriting = true;
       setButtonsDisabled(true);
 
       try {
-        await set(ref(db, "officeStatus/" + name), {
-          inOffice: true,
-          statusType: "in",
-          location: "",
-          updatedAt: Date.now(),
-          updatedBy: currentUser,
-          client: getClientInfo()
-        });
+        const now = Date.now();
+        let payload = null;
+        let logAction = "";
+        let logDetail = "";
 
-        await writeLog(name, "設為在辦公室");
+        if (action.type === "in") {
+          payload = {
+            inOffice: true,
+            statusType: "in",
+            location: "",
+            updatedAt: now,
+            updatedBy: currentUser,
+            client: getClientInfo({
+              actionToken: action.token,
+              actionType: action.type
+            })
+          };
+          logAction = "設為在辦公室";
+        }
+
+        if (action.type === "out") {
+          payload = {
+            inOffice: false,
+            statusType: "out",
+            location: action.location,
+            updatedAt: now,
+            updatedBy: currentUser,
+            client: getClientInfo({
+              actionToken: action.token,
+              actionType: action.type
+            })
+          };
+          logAction = "設為外出";
+          logDetail = `去向：${action.location}`;
+        }
+
+        if (action.type === "unknown") {
+          payload = {
+            inOffice: false,
+            statusType: "unknown",
+            location: "",
+            updatedAt: now,
+            updatedBy: currentUser,
+            client: getClientInfo({
+              actionToken: action.token,
+              actionType: action.type
+            })
+          };
+          logAction = "設為沒看到";
+        }
+
+        if (!payload) return;
+
+        await set(ref(db, "officeStatus/" + action.name), payload);
+        await writeLog(action.name, logAction, logDetail, null, false, action.token);
       } catch (e) {
-        console.error(e);
+        console.error("狀態寫入失敗：", e);
+        alert("狀態寫入失敗，請稍後再試。");
       } finally {
         isWriting = false;
         setButtonsDisabled(false);
       }
     }
 
-    window.confirmOutOffice = function(name) {
-      if (!canEdit(name)) return;
-      if (isWriting) return;
-
-      const select = document.getElementById(`location-${name}`);
-      const location = select ? select.value : "未填寫";
-
-      if (confirm(`確定要將 ${name} 的狀態設為「外出」並前往「${location}」嗎？`)) {
-        setOutOffice(name, location);
-      }
-    };
-
-    async function setOutOffice(name, location) {
-      if (isWriting) return;
-      isWriting = true;
-      setButtonsDisabled(true);
-
-      try {
-        await set(ref(db, "officeStatus/" + name), {
-          inOffice: false,
-          statusType: "out",
-          location: location,
-          updatedAt: Date.now(),
-          updatedBy: currentUser,
-          client: getClientInfo()
-        });
-
-        await writeLog(name, "設為外出", `去向：${location}`);
-      } catch (e) {
-        console.error(e);
-      } finally {
-        isWriting = false;
-        setButtonsDisabled(false);
-      }
-    }
-
-    window.confirmUnknown = function(name) {
-      if (!canEdit(name)) return;
-      if (isWriting) return;
-
-      if (confirm(`確定要將 ${name} 的狀態設為「沒看到人」嗎？`)) {
-        setUnknown(name);
-      }
-    };
-
-    async function setUnknown(name) {
-      if (isWriting) return;
-      isWriting = true;
-      setButtonsDisabled(true);
-
-      try {
-        await set(ref(db, "officeStatus/" + name), {
-          inOffice: false,
-          statusType: "unknown",
-          location: "",
-          updatedAt: Date.now(),
-          updatedBy: currentUser,
-          client: getClientInfo()
-        });
-
-        await writeLog(name, "設為沒看到");
-      } catch (e) {
-        console.error(e);
-      } finally {
-        isWriting = false;
-        setButtonsDisabled(false);
-      }
-    }
-
-    window.clearLogs = async function() {
+    async function executeClearLogs(token) {
       if (!isAdmin) return;
-
-      const ok = confirm("確定要清除所有歷史紀錄嗎？此動作無法復原。");
-      if (!ok) return;
 
       try {
         await set(ref(db, "logs"), null);
-        await writeLog("logs", "清除 Log", "管理員清除所有歷史紀錄", currentUser, true);
+        await writeLog("logs", "清除 Log", "管理員清除所有歷史紀錄", currentUser, true, token);
         alert("Log 已清除");
       } catch (e) {
         console.error("清除 Log 失敗：", e);
         alert("清除 Log 失敗");
       }
-    };
+    }
 
-    window.renameDevice = function() {
+    document.getElementById("list").addEventListener("click", event => {
+      const button = event.target.closest("button");
+      if (!button) return;
+
+      const action = button.dataset.action;
+      const name = button.dataset.name;
+
+      if (!action || !name) return;
+      if (!canEdit(name)) return;
+      if (isWriting) return;
+
+      if (action === "toggle-out") {
+        const panel = document.getElementById(`outPanel-${name}`);
+        if (panel) panel.classList.toggle("show");
+        return;
+      }
+
+      if (action === "in") {
+        createPendingAction("in", name);
+        return;
+      }
+
+      if (action === "unknown") {
+        createPendingAction("unknown", name);
+        return;
+      }
+
+      if (action === "out-confirm") {
+        const select = document.getElementById(`location-${name}`);
+        const location = select ? select.value : "未填寫";
+        createPendingAction("out", name, location);
+      }
+    });
+
+    document.getElementById("modalCancelBtn").addEventListener("click", closeModal);
+
+    document.getElementById("modalConfirmBtn").addEventListener("click", executePendingAction);
+
+    document.getElementById("modalBackdrop").addEventListener("click", event => {
+      if (event.target.id === "modalBackdrop") {
+        closeModal();
+      }
+    });
+
+    document.getElementById("clearLogsBtn").addEventListener("click", () => {
+      if (!isAdmin) return;
+
+      const token = makeId("action");
+      const createdAt = Date.now();
+
+      pendingAction = {
+        token,
+        type: "clearLogs",
+        name: "logs",
+        createdAt,
+        expiresAt: createdAt + ACTION_TOKEN_TTL_MS
+      };
+
+      openModal(
+        "確認清除 Log",
+        `
+          <div>此動作會刪除所有歷史紀錄。</div>
+          <div style="color:#c62828;font-weight:bold;margin-top:8px;">此動作無法復原。</div>
+        `,
+        "確認清除",
+        true
+      );
+    });
+
+    document.getElementById("renameDeviceBtn").addEventListener("click", () => {
       const input = prompt("請輸入新的裝置名稱", deviceName);
-
       if (!input || !input.trim()) return;
 
       deviceName = input.trim();
       localStorage.setItem("officeStatusDeviceName", deviceName);
-
-      document.getElementById("userInfo").textContent =
-        isAdmin
-          ? `目前身份：${currentUser}（管理員）｜裝置：${deviceName}`
-          : isGuest
-            ? `Currently viewing as Guest (Read-only)｜裝置：${deviceName}`
-            : `目前身份：${currentUser}｜裝置：${deviceName}`;
-
+      refreshUserInfo();
       alert("裝置名稱已更新");
-    };
+    });
 
     people.forEach(name => {
       onValue(ref(db, "officeStatus/" + name), snapshot => {
@@ -840,15 +1022,10 @@
                 <strong>${log.target || "未知"}</strong>
                 ${log.action || "更新"}${detailText}
               </div>
-              <div class="log-meta">
-                裝置：${client.deviceName || "無"}
-              </div>
-              <div class="log-meta">
-                Device ID：${client.deviceId || "無"}
-              </div>
-              <div class="log-meta">
-                Session ID：${client.sessionId || "無"}
-              </div>
+              <div class="log-meta">裝置：${client.deviceName || "無"}</div>
+              <div class="log-meta">Device ID：${client.deviceId || "無"}</div>
+              <div class="log-meta">Session ID：${client.sessionId || "無"}</div>
+              <div class="log-meta">Action Token：${client.actionToken || "無"}</div>
             </div>
           `;
         }).join("");
