@@ -193,10 +193,24 @@
       display: flex;
       justify-content: space-between;
       align-items: center;
+      gap: 6px;
+    }
+
+    .log-actions {
+      display: flex;
+      gap: 5px;
     }
 
     .clear-log-btn {
       background: #c62828;
+      color: white;
+      padding: 4px 8px;
+      border-radius: 6px;
+      font-size: 11px;
+    }
+
+    .device-btn {
+      background: #455a64;
       color: white;
       padding: 4px 8px;
       border-radius: 6px;
@@ -239,10 +253,6 @@
         font-size: 13px;
       }
 
-      .buttons {
-        grid-template-columns: repeat(3, 1fr);
-      }
-
       button, select {
         font-size: 11px;
       }
@@ -274,8 +284,11 @@
 
     <div class="log-panel" id="logPanel">
       <div class="log-title">
-        <span>📋 近期動作紀錄（僅管理員可見）</span>
-        <button class="clear-log-btn" onclick="clearLogs()">清除 Log</button>
+        <span>📋 近期動作紀錄</span>
+        <div class="log-actions">
+          <button class="device-btn" onclick="renameDevice()">裝置名稱</button>
+          <button class="clear-log-btn" onclick="clearLogs()">清除 Log</button>
+        </div>
       </div>
       <div class="log-list" id="logList">載入紀錄中...</div>
     </div>
@@ -333,7 +346,6 @@
       currentUser = USER_KEYS[userKey];
     } else if (userParam) {
       if (admins.includes(userParam)) {
-        console.warn(`拒絕未授權的管理員登入嘗試: ${userParam}`);
         currentUser = "Guest";
       } else if (people.includes(userParam)) {
         currentUser = userParam;
@@ -360,40 +372,36 @@
       return id;
     }
 
-    const deviceId = getDeviceId();
-    const sessionId = makeId("session");
-    const pageOpenedAt = Date.now();
+    function getDeviceName() {
+      let name = localStorage.getItem("officeStatusDeviceName");
 
-    function maskKey(key) {
-      if (!key) return "";
-      if (key.length <= 4) return "****";
-      return key.slice(0, 2) + "***" + key.slice(-2);
+      if (!name) {
+        const input = prompt("請輸入這台裝置名稱，例如 Joey-PC、Anli-iPhone、會議室平板");
+        name = input && input.trim() ? input.trim() : "未命名裝置";
+        localStorage.setItem("officeStatusDeviceName", name);
+      }
+
+      return name;
     }
+
+    const deviceId = getDeviceId();
+    let deviceName = getDeviceName();
+    const sessionId = makeId("session");
 
     function getClientInfo() {
       return {
+        deviceName: deviceName,
         deviceId: deviceId,
-        sessionId: sessionId,
-        pageOpenedAt: pageOpenedAt,
-        urlUser: userParam || "",
-        keyMask: maskKey(userKey || ""),
-        userAgent: navigator.userAgent || "",
-        platform: navigator.platform || "",
-        language: navigator.language || "",
-        pageUrl: location.href.split("?")[0],
-        visibilityState: document.visibilityState || "",
-        screenWidth: window.screen ? window.screen.width : "",
-        screenHeight: window.screen ? window.screen.height : "",
-        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || ""
+        sessionId: sessionId
       };
     }
 
     document.getElementById("userInfo").textContent =
       isAdmin
-        ? `目前身份：${currentUser}（管理員）`
+        ? `目前身份：${currentUser}（管理員）｜裝置：${deviceName}`
         : isGuest
-          ? "Currently viewing as Guest (Read-only)"
-          : `目前身份：${currentUser}`;
+          ? `Currently viewing as Guest (Read-only)｜裝置：${deviceName}`
+          : `目前身份：${currentUser}｜裝置：${deviceName}`;
 
     if (isAdmin) {
       const panel = document.getElementById("logPanel");
@@ -451,22 +459,16 @@
       try {
         isCleaningLogs = true;
 
-        const logsRef = ref(db, "logs");
-        const snapshot = await get(logsRef);
-
+        const snapshot = await get(ref(db, "logs"));
         if (!snapshot.exists()) return;
 
-        const data = snapshot.val();
-        const entries = Object.entries(data);
-
+        const entries = Object.entries(snapshot.val());
         if (entries.length <= MAX_LOG_COUNT) return;
 
-        entries.sort((a, b) => {
-          return (a[1].timestamp || 0) - (b[1].timestamp || 0);
-        });
+        entries.sort((a, b) => (a[1].timestamp || 0) - (b[1].timestamp || 0));
 
-        const removeCount = entries.length - MAX_LOG_COUNT;
         const updates = {};
+        const removeCount = entries.length - MAX_LOG_COUNT;
 
         for (let i = 0; i < removeCount; i++) {
           updates["logs/" + entries[i][0]] = null;
@@ -482,9 +484,7 @@
 
     async function writeLog(targetName, action, detail = "", operatorOverride = null, skipCleanup = false) {
       try {
-        const logRef = ref(db, "logs");
-
-        await push(logRef, {
+        await push(ref(db, "logs"), {
           operator: operatorOverride || currentUser,
           target: targetName,
           action: action,
@@ -506,8 +506,7 @@
         if (!isAfterTaiwanEightAM()) return;
 
         const today = taiwanDateKey();
-        const resetRef = ref(db, "system/lastResetDate");
-        const snapshot = await get(resetRef);
+        const snapshot = await get(ref(db, "system/lastResetDate"));
 
         if (snapshot.val() === today) return;
 
@@ -523,6 +522,7 @@
             updatedBy: "System",
             client: {
               reason: "dailyReset",
+              deviceName: deviceName,
               deviceId: deviceId,
               sessionId: sessionId
             }
@@ -538,7 +538,7 @@
       }
     }
 
-    dailyResetIfNeeded().catch(e => console.error(e));
+    dailyResetIfNeeded();
 
     function getStatusRank(data) {
       if (data.statusType === "in" || data.inOffice === true) return 1;
@@ -554,7 +554,7 @@
 
     function setButtonsDisabled(disabled) {
       document.querySelectorAll("button").forEach(btn => {
-        if (!btn.classList.contains("clear-log-btn")) {
+        if (!btn.classList.contains("clear-log-btn") && !btn.classList.contains("device-btn")) {
           btn.disabled = disabled;
         }
       });
@@ -582,13 +582,9 @@
       sortedPeople.forEach(name => {
         const data = statusData[name] || {};
 
-        if (data.statusType === "in" || data.inOffice === true) {
-          countIn++;
-        } else if (data.statusType === "unknown") {
-          countUnknown++;
-        } else {
-          countOut++;
-        }
+        if (data.statusType === "in" || data.inOffice === true) countIn++;
+        else if (data.statusType === "unknown") countUnknown++;
+        else countOut++;
       });
 
       document.getElementById("countIn").textContent = countIn;
@@ -663,6 +659,7 @@
 
       const panel = document.getElementById(`outPanel-${name}`);
       if (!panel) return;
+
       panel.classList.toggle("show");
     };
 
@@ -681,13 +678,11 @@
       setButtonsDisabled(true);
 
       try {
-        const now = Date.now();
-
         await set(ref(db, "officeStatus/" + name), {
           inOffice: true,
           statusType: "in",
           location: "",
-          updatedAt: now,
+          updatedAt: Date.now(),
           updatedBy: currentUser,
           client: getClientInfo()
         });
@@ -719,13 +714,11 @@
       setButtonsDisabled(true);
 
       try {
-        const now = Date.now();
-
         await set(ref(db, "officeStatus/" + name), {
           inOffice: false,
           statusType: "out",
           location: location,
-          updatedAt: now,
+          updatedAt: Date.now(),
           updatedBy: currentUser,
           client: getClientInfo()
         });
@@ -754,13 +747,11 @@
       setButtonsDisabled(true);
 
       try {
-        const now = Date.now();
-
         await set(ref(db, "officeStatus/" + name), {
           inOffice: false,
           statusType: "unknown",
           location: "",
-          updatedAt: now,
+          updatedAt: Date.now(),
           updatedBy: currentUser,
           client: getClientInfo()
         });
@@ -786,14 +777,30 @@
         alert("Log 已清除");
       } catch (e) {
         console.error("清除 Log 失敗：", e);
-        alert("清除 Log 失敗，請查看 Console。");
+        alert("清除 Log 失敗");
       }
     };
 
-    people.forEach(name => {
-      const personRef = ref(db, "officeStatus/" + name);
+    window.renameDevice = function() {
+      const input = prompt("請輸入新的裝置名稱", deviceName);
 
-      onValue(personRef, snapshot => {
+      if (!input || !input.trim()) return;
+
+      deviceName = input.trim();
+      localStorage.setItem("officeStatusDeviceName", deviceName);
+
+      document.getElementById("userInfo").textContent =
+        isAdmin
+          ? `目前身份：${currentUser}（管理員）｜裝置：${deviceName}`
+          : isGuest
+            ? `Currently viewing as Guest (Read-only)｜裝置：${deviceName}`
+            : `目前身份：${currentUser}｜裝置：${deviceName}`;
+
+      alert("裝置名稱已更新");
+    };
+
+    people.forEach(name => {
+      onValue(ref(db, "officeStatus/" + name), snapshot => {
         statusData[name] = snapshot.val() || {};
         renderList();
       }, error => {
@@ -802,13 +809,12 @@
     });
 
     if (isAdmin) {
-      const logsRef = ref(db, "logs");
-
-      onValue(logsRef, snapshot => {
+      onValue(ref(db, "logs"), snapshot => {
         const logListDiv = document.getElementById("logList");
         if (!logListDiv) return;
 
         const data = snapshot.val();
+
         if (!data) {
           logListDiv.innerHTML = "尚無任何動作紀錄。";
           return;
@@ -823,12 +829,7 @@
         logListDiv.innerHTML = recentLogs.map(log => {
           const time = taiwanTimeText(log.timestamp);
           const detailText = log.detail ? ` (${log.detail})` : "";
-
           const client = log.client || {};
-          const resolution =
-            client.screenWidth && client.screenHeight
-              ? `${client.screenWidth}x${client.screenHeight}`
-              : "無";
 
           return `
             <div class="log-item">
@@ -840,19 +841,13 @@
                 ${log.action || "更新"}${detailText}
               </div>
               <div class="log-meta">
-                Device: ${client.deviceId || "無"}
+                裝置：${client.deviceName || "無"}
               </div>
               <div class="log-meta">
-                Session: ${client.sessionId || "無"}
+                Device ID：${client.deviceId || "無"}
               </div>
               <div class="log-meta">
-                Key: ${client.keyMask || "無"} ｜ URL User: ${client.urlUser || "無"}
-              </div>
-              <div class="log-meta">
-                Platform: ${client.platform || "無"} ｜ Resolution: ${resolution} ｜ TZ: ${client.timezone || "無"}
-              </div>
-              <div class="log-meta">
-                Visibility: ${client.visibilityState || "無"}
+                Session ID：${client.sessionId || "無"}
               </div>
             </div>
           `;
