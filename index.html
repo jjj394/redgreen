@@ -15,7 +15,7 @@
     }
 
     .container {
-      max-width: 680px;
+      max-width: 720px;
       margin: auto;
     }
 
@@ -34,7 +34,7 @@
 
     .summary {
       display: grid;
-      grid-template-columns: repeat(3, 1fr);
+      grid-template-columns: repeat(4, 1fr);
       gap: 6px;
       margin-bottom: 8px;
     }
@@ -90,6 +90,11 @@
       box-shadow: 0 0 6px #fbc02d;
     }
 
+    .light.offwork {
+      background: #1976d2;
+      box-shadow: 0 0 6px #1976d2;
+    }
+
     .name {
       font-size: 16px;
       font-weight: bold;
@@ -115,7 +120,7 @@
 
     .buttons {
       display: grid;
-      grid-template-columns: repeat(3, 1fr);
+      grid-template-columns: repeat(4, 1fr);
       gap: 5px;
       margin-top: 6px;
     }
@@ -148,6 +153,10 @@
     .btn-unknown {
       background: #f9a825;
       color: #222;
+    }
+
+    .btn-offwork {
+      background: #1976d2;
     }
 
     .out-panel {
@@ -313,6 +322,20 @@
       button, select {
         font-size: 11px;
       }
+
+      .summary {
+        grid-template-columns: repeat(4, 1fr);
+        gap: 4px;
+      }
+
+      .summary-box {
+        padding: 6px 2px;
+        font-size: 11px;
+      }
+
+      .summary-number {
+        font-size: 18px;
+      }
     }
   </style>
 </head>
@@ -334,6 +357,10 @@
       <div class="summary-box">
         <div>沒看到</div>
         <div class="summary-number" id="countUnknown">0</div>
+      </div>
+      <div class="summary-box">
+        <div>下班</div>
+        <div class="summary-number" id="countOffwork">0</div>
       </div>
     </div>
 
@@ -619,12 +646,15 @@
     function getStatusRank(data) {
       if (data.statusType === "in" || data.inOffice === true) return 1;
       if (data.statusType === "unknown") return 2;
-      return 3;
+      if (data.statusType === "out") return 3;
+      if (data.statusType === "offwork") return 4;
+      return 5;
     }
 
     function getStatusText(data) {
       if (data.statusType === "in" || data.inOffice === true) return "在辦公室";
       if (data.statusType === "unknown") return "沒看到人";
+      if (data.statusType === "offwork") return "已下班";
       return "外出";
     }
 
@@ -634,7 +664,8 @@
           !btn.classList.contains("clear-log-btn") &&
           !btn.classList.contains("device-btn") &&
           !btn.classList.contains("modal-cancel") &&
-          !btn.classList.contains("modal-confirm")
+          !btn.classList.contains("modal-confirm") &&
+          !btn.classList.contains("modal-danger")
         ) {
           btn.disabled = disabled;
         }
@@ -658,18 +689,21 @@
       let countIn = 0;
       let countOut = 0;
       let countUnknown = 0;
+      let countOffwork = 0;
 
       sortedPeople.forEach(name => {
         const data = statusData[name] || {};
 
         if (data.statusType === "in" || data.inOffice === true) countIn++;
         else if (data.statusType === "unknown") countUnknown++;
+        else if (data.statusType === "offwork") countOffwork++;
         else countOut++;
       });
 
       document.getElementById("countIn").textContent = countIn;
       document.getElementById("countOut").textContent = countOut;
       document.getElementById("countUnknown").textContent = countUnknown;
+      document.getElementById("countOffwork").textContent = countOffwork;
 
       list.innerHTML = "";
 
@@ -682,7 +716,8 @@
 
         let lightClass = "";
         if (statusType === "in") lightClass = "in";
-        if (statusType === "unknown") lightClass = "unknown";
+        else if (statusType === "unknown") lightClass = "unknown";
+        else if (statusType === "offwork") lightClass = "offwork";
 
         const locationText =
           statusType === "out"
@@ -717,6 +752,7 @@
                     <button class="btn-in" data-action="in" data-name="${name}">在</button>
                     <button class="btn-out" data-action="toggle-out" data-name="${name}">外出</button>
                     <button class="btn-unknown" data-action="unknown" data-name="${name}">沒看到</button>
+                    <button class="btn-offwork" data-action="offwork" data-name="${name}">下班</button>
                   </div>
 
                   <div class="out-panel" id="outPanel-${name}">
@@ -736,9 +772,11 @@
     function openModal(title, content, confirmText = "確認", danger = false) {
       document.getElementById("modalTitle").textContent = title;
       document.getElementById("modalContent").innerHTML = content;
+
       const confirmBtn = document.getElementById("modalConfirmBtn");
       confirmBtn.textContent = confirmText;
       confirmBtn.className = danger ? "modal-danger" : "modal-confirm";
+
       document.getElementById("modalBackdrop").classList.add("show");
     }
 
@@ -773,6 +811,8 @@
       } else if (type === "out") {
         statusText = "外出";
         detail = `<div>去向：<strong>${location}</strong></div>`;
+      } else if (type === "offwork") {
+        statusText = "已下班";
       }
 
       openModal(
@@ -796,7 +836,11 @@
       if (!pendingAction.token) return false;
       if (Date.now() > pendingAction.expiresAt) return false;
       if (!canEdit(pendingAction.name)) return false;
-      if (!["in", "out", "unknown", "clearLogs"].includes(pendingAction.type)) return false;
+
+      if (!["in", "out", "unknown", "offwork", "clearLogs"].includes(pendingAction.type)) {
+        return false;
+      }
+
       return true;
     }
 
@@ -876,6 +920,21 @@
           logAction = "設為沒看到";
         }
 
+        if (action.type === "offwork") {
+          payload = {
+            inOffice: false,
+            statusType: "offwork",
+            location: "",
+            updatedAt: now,
+            updatedBy: currentUser,
+            client: getClientInfo({
+              actionToken: action.token,
+              actionType: action.type
+            })
+          };
+          logAction = "設為下班";
+        }
+
         if (!payload) return;
 
         await set(ref(db, "officeStatus/" + action.name), payload);
@@ -929,6 +988,11 @@
         return;
       }
 
+      if (action === "offwork") {
+        createPendingAction("offwork", name);
+        return;
+      }
+
       if (action === "out-confirm") {
         const select = document.getElementById(`location-${name}`);
         const location = select ? select.value : "未填寫";
@@ -937,7 +1001,6 @@
     });
 
     document.getElementById("modalCancelBtn").addEventListener("click", closeModal);
-
     document.getElementById("modalConfirmBtn").addEventListener("click", executePendingAction);
 
     document.getElementById("modalBackdrop").addEventListener("click", event => {
