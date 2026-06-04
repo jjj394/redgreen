@@ -132,6 +132,11 @@
       color: white;
     }
 
+    button:disabled {
+      opacity: 0.55;
+      cursor: not-allowed;
+    }
+
     .btn-in {
       background: #2e7d32;
     }
@@ -169,14 +174,13 @@
       margin-left: 30px;
     }
 
-    /* 📜 歷史紀錄面板樣式 */
     .log-panel {
       margin-top: 20px;
       background: #fff;
       border-radius: 10px;
       padding: 12px;
       box-shadow: 0 1px 5px rgba(0,0,0,0.08);
-      display: none; /* 預設隱藏，僅管理員可見 */
+      display: none;
     }
 
     .log-title {
@@ -189,7 +193,7 @@
     }
 
     .log-list {
-      max-height: 180px;
+      max-height: 260px;
       overflow-y: auto;
       font-family: monospace;
       font-size: 11px;
@@ -199,7 +203,12 @@
 
     .log-item {
       border-bottom: 1px dashed #f0f0f0;
-      padding: 4px 0;
+      padding: 5px 0;
+    }
+
+    .log-meta {
+      color: #999;
+      font-size: 10px;
     }
 
     @media (max-width: 480px) {
@@ -252,9 +261,8 @@
 
     <div id="list"></div>
 
-    <!-- 📜 歷史紀錄面板 (僅管理員可見) -->
     <div class="log-panel" id="logPanel">
-      <div class="log-title">📋 近期動作紀錄 (僅管理員可見)</div>
+      <div class="log-title">📋 近期動作紀錄（僅管理員可見）</div>
       <div class="log-list" id="logList">載入紀錄中...</div>
     </div>
   </div>
@@ -285,16 +293,15 @@
     const app = initializeApp(firebaseConfig);
     const db = getDatabase(app);
 
-    // 🔑 安全金鑰對照表
     const USER_KEYS = {
-      "joey8899": "Joey",     
-      "anli7766": "Anli",     
-      "frank5544": "Frank",   
-      "roy1122": "Roy",       
-      "jack2233": "Jack",     
-      "jaren3344": "Jaren",   
-      "jax4455": "Jax",       
-      "chris5566": "Chris"    
+      "joey8899": "Joey",
+      "anli7766": "Anli",
+      "frank5544": "Frank",
+      "roy1122": "Roy",
+      "jack2233": "Jack",
+      "jaren3344": "Jaren",
+      "jax4455": "Jax",
+      "chris5566": "Chris"
     };
 
     const people = ["Roy", "Jack", "Jax", "Chris", "Anli", "Jaren"];
@@ -309,8 +316,7 @@
 
     if (userKey && USER_KEYS[userKey]) {
       currentUser = USER_KEYS[userKey];
-    } 
-    else if (userParam) {
+    } else if (userParam) {
       if (admins.includes(userParam)) {
         console.warn(`拒絕未授權的管理員登入嘗試: ${userParam}`);
         currentUser = "Guest";
@@ -323,6 +329,45 @@
     const isAdmin = admins.includes(currentUser);
 
     const statusData = {};
+    let isWriting = false;
+
+    function makeId(prefix) {
+      return prefix + "-" + Math.random().toString(36).slice(2, 10) + "-" + Date.now().toString(36);
+    }
+
+    function getDeviceId() {
+      let id = localStorage.getItem("officeStatusDeviceId");
+      if (!id) {
+        id = makeId("device");
+        localStorage.setItem("officeStatusDeviceId", id);
+      }
+      return id;
+    }
+
+    const deviceId = getDeviceId();
+    const sessionId = makeId("session");
+    const pageOpenedAt = Date.now();
+
+    function maskKey(key) {
+      if (!key) return "";
+      if (key.length <= 4) return "****";
+      return key.slice(0, 2) + "***" + key.slice(-2);
+    }
+
+    function getClientInfo() {
+      return {
+        deviceId: deviceId,
+        sessionId: sessionId,
+        pageOpenedAt: pageOpenedAt,
+        urlUser: userParam || "",
+        keyMask: maskKey(userKey || ""),
+        userAgent: navigator.userAgent || "",
+        platform: navigator.platform || "",
+        language: navigator.language || "",
+        pageUrl: location.href.split("?")[0],
+        visibilityState: document.visibilityState || ""
+      };
+    }
 
     document.getElementById("userInfo").textContent =
       isAdmin
@@ -381,15 +426,16 @@
       return Date.now() - timestamp > 4 * 60 * 60 * 1000;
     }
 
-    async function writeLog(targetName, action, detail = "") {
+    async function writeLog(targetName, action, detail = "", operatorOverride = null) {
       try {
         const logRef = ref(db, "logs");
         await push(logRef, {
-          operator: currentUser,
+          operator: operatorOverride || currentUser,
           target: targetName,
           action: action,
           detail: detail,
-          timestamp: Date.now()
+          timestamp: Date.now(),
+          client: getClientInfo()
         });
       } catch (e) {
         console.error("寫入日誌失敗：", e);
@@ -406,6 +452,7 @@
 
         if (snapshot.val() === today) return;
 
+        const now = Date.now();
         const updates = {};
 
         people.forEach(name => {
@@ -413,15 +460,20 @@
             inOffice: false,
             statusType: "unknown",
             location: "",
-            updatedAt: Date.now(),
-            updatedBy: "System"
+            updatedAt: now,
+            updatedBy: "System",
+            client: {
+              reason: "dailyReset",
+              sessionId: sessionId,
+              deviceId: deviceId
+            }
           };
         });
 
         updates["system/lastResetDate"] = today;
 
         await update(ref(db), updates);
-        await writeLog("System", "每日重置", "系統自動重置所有人員狀態為沒看到");
+        await writeLog("All", "每日重置", "系統自動重置所有人員狀態為沒看到", "System");
       } catch (e) {
         console.error("每日重置失敗：", e);
       }
@@ -439,6 +491,12 @@
       if (data.statusType === "in" || data.inOffice === true) return "在辦公室";
       if (data.statusType === "unknown") return "沒看到人";
       return "外出";
+    }
+
+    function setButtonsDisabled(disabled) {
+      document.querySelectorAll("button").forEach(btn => {
+        btn.disabled = disabled;
+      });
     }
 
     function renderList() {
@@ -539,37 +597,53 @@
     }
 
     window.toggleOutPanel = function(name) {
+      if (!canEdit(name)) return;
+      if (isWriting) return;
+
       const panel = document.getElementById(`outPanel-${name}`);
       if (!panel) return;
       panel.classList.toggle("show");
     };
 
-    // 🙋‍♂️ 在辦公室 - 確認視窗
     window.confirmInOffice = function(name) {
       if (!canEdit(name)) return;
+      if (isWriting) return;
+
       if (confirm(`確定要將 ${name} 的狀態設為「在辦公室」嗎？`)) {
         setInOffice(name);
       }
     };
 
     async function setInOffice(name) {
+      if (isWriting) return;
+      isWriting = true;
+      setButtonsDisabled(true);
+
       try {
+        const now = Date.now();
+
         await set(ref(db, "officeStatus/" + name), {
           inOffice: true,
           statusType: "in",
           location: "",
-          updatedAt: Date.now(),
-          updatedBy: currentUser
+          updatedAt: now,
+          updatedBy: currentUser,
+          client: getClientInfo()
         });
+
         await writeLog(name, "設為在辦公室");
       } catch (e) {
         console.error(e);
+      } finally {
+        isWriting = false;
+        setButtonsDisabled(false);
       }
     }
 
-    // 🚗 外出 - 確認視窗
     window.confirmOutOffice = function(name) {
       if (!canEdit(name)) return;
+      if (isWriting) return;
+
       const select = document.getElementById(`location-${name}`);
       const location = select ? select.value : "未填寫";
 
@@ -579,40 +653,63 @@
     };
 
     async function setOutOffice(name, location) {
+      if (isWriting) return;
+      isWriting = true;
+      setButtonsDisabled(true);
+
       try {
+        const now = Date.now();
+
         await set(ref(db, "officeStatus/" + name), {
           inOffice: false,
           statusType: "out",
           location: location,
-          updatedAt: Date.now(),
-          updatedBy: currentUser
+          updatedAt: now,
+          updatedBy: currentUser,
+          client: getClientInfo()
         });
+
         await writeLog(name, "設為外出", `去向：${location}`);
       } catch (e) {
         console.error(e);
+      } finally {
+        isWriting = false;
+        setButtonsDisabled(false);
       }
     }
 
-    // ❓ 沒看到 - 確認視窗
     window.confirmUnknown = function(name) {
       if (!canEdit(name)) return;
+      if (isWriting) return;
+
       if (confirm(`確定要將 ${name} 的狀態設為「沒看到人」嗎？`)) {
         setUnknown(name);
       }
     };
 
     async function setUnknown(name) {
+      if (isWriting) return;
+      isWriting = true;
+      setButtonsDisabled(true);
+
       try {
+        const now = Date.now();
+
         await set(ref(db, "officeStatus/" + name), {
           inOffice: false,
           statusType: "unknown",
           location: "",
-          updatedAt: Date.now(),
-          updatedBy: currentUser
+          updatedAt: now,
+          updatedBy: currentUser,
+          client: getClientInfo()
         });
+
         await writeLog(name, "設為沒看到");
       } catch (e) {
         console.error(e);
+      } finally {
+        isWriting = false;
+        setButtonsDisabled(false);
       }
     }
 
@@ -629,6 +726,7 @@
 
     if (isAdmin) {
       const logsRef = ref(db, "logs");
+
       onValue(logsRef, snapshot => {
         const logListDiv = document.getElementById("logList");
         if (!logListDiv) return;
@@ -640,14 +738,35 @@
         }
 
         const sortedLogs = Object.values(data).sort((a, b) => b.timestamp - a.timestamp);
-        const recentLogs = sortedLogs.slice(0, 30);
+        const recentLogs = sortedLogs.slice(0, 40);
 
         logListDiv.innerHTML = recentLogs.map(log => {
           const time = taiwanTimeText(log.timestamp);
           const detailText = log.detail ? ` (${log.detail})` : "";
+
+          const client = log.client || {};
+          const deviceText = client.deviceId ? `Device: ${client.deviceId}` : "Device: 無";
+          const sessionText = client.sessionId ? `Session: ${client.sessionId}` : "Session: 無";
+          const keyText = client.keyMask ? `Key: ${client.keyMask}` : "Key: 無";
+          const userText = client.urlUser ? `URL User: ${client.urlUser}` : "URL User: 無";
+          const platformText = client.platform ? `Platform: ${client.platform}` : "";
+          const visibilityText = client.visibilityState ? `Visibility: ${client.visibilityState}` : "";
+
           return `
             <div class="log-item">
-              [${time}] <strong>${log.operator || "未知"}</strong> 將 <strong>${log.target || "未知"}</strong> ${log.action || "更新"}${detailText}
+              <div>
+                [${time}]
+                <strong>${log.operator || "未知"}</strong>
+                將
+                <strong>${log.target || "未知"}</strong>
+                ${log.action || "更新"}${detailText}
+              </div>
+              <div class="log-meta">
+                ${deviceText} ｜ ${sessionText} ｜ ${keyText} ｜ ${userText}
+              </div>
+              <div class="log-meta">
+                ${platformText} ｜ ${visibilityText}
+              </div>
             </div>
           `;
         }).join("");
