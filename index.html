@@ -190,10 +190,21 @@
       color: #333;
       border-bottom: 1px solid #eee;
       padding-bottom: 5px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .clear-log-btn {
+      background: #c62828;
+      color: white;
+      padding: 4px 8px;
+      border-radius: 6px;
+      font-size: 11px;
     }
 
     .log-list {
-      max-height: 260px;
+      max-height: 280px;
       overflow-y: auto;
       font-family: monospace;
       font-size: 11px;
@@ -262,7 +273,10 @@
     <div id="list"></div>
 
     <div class="log-panel" id="logPanel">
-      <div class="log-title">📋 近期動作紀錄（僅管理員可見）</div>
+      <div class="log-title">
+        <span>📋 近期動作紀錄（僅管理員可見）</span>
+        <button class="clear-log-btn" onclick="clearLogs()">清除 Log</button>
+      </div>
       <div class="log-list" id="logList">載入紀錄中...</div>
     </div>
   </div>
@@ -307,6 +321,7 @@
     const people = ["Roy", "Jack", "Jax", "Chris", "Anli", "Jaren"];
     const admins = ["Joey", "Anli", "Frank", "Jaren"];
     const locations = ["請假", "6F_量測", "1F_RF", "大地遊戲"];
+    const MAX_LOG_COUNT = 300;
 
     const params = new URLSearchParams(window.location.search);
     const userKey = params.get("key");
@@ -330,6 +345,7 @@
 
     const statusData = {};
     let isWriting = false;
+    let isCleaningLogs = false;
 
     function makeId(prefix) {
       return prefix + "-" + Math.random().toString(36).slice(2, 10) + "-" + Date.now().toString(36);
@@ -365,7 +381,10 @@
         platform: navigator.platform || "",
         language: navigator.language || "",
         pageUrl: location.href.split("?")[0],
-        visibilityState: document.visibilityState || ""
+        visibilityState: document.visibilityState || "",
+        screenWidth: window.screen ? window.screen.width : "",
+        screenHeight: window.screen ? window.screen.height : "",
+        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || ""
       };
     }
 
@@ -426,9 +445,45 @@
       return Date.now() - timestamp > 4 * 60 * 60 * 1000;
     }
 
-    async function writeLog(targetName, action, detail = "", operatorOverride = null) {
+    async function cleanupLogs() {
+      if (isCleaningLogs) return;
+
+      try {
+        isCleaningLogs = true;
+
+        const logsRef = ref(db, "logs");
+        const snapshot = await get(logsRef);
+
+        if (!snapshot.exists()) return;
+
+        const data = snapshot.val();
+        const entries = Object.entries(data);
+
+        if (entries.length <= MAX_LOG_COUNT) return;
+
+        entries.sort((a, b) => {
+          return (a[1].timestamp || 0) - (b[1].timestamp || 0);
+        });
+
+        const removeCount = entries.length - MAX_LOG_COUNT;
+        const updates = {};
+
+        for (let i = 0; i < removeCount; i++) {
+          updates["logs/" + entries[i][0]] = null;
+        }
+
+        await update(ref(db), updates);
+      } catch (e) {
+        console.error("清理 Log 失敗：", e);
+      } finally {
+        isCleaningLogs = false;
+      }
+    }
+
+    async function writeLog(targetName, action, detail = "", operatorOverride = null, skipCleanup = false) {
       try {
         const logRef = ref(db, "logs");
+
         await push(logRef, {
           operator: operatorOverride || currentUser,
           target: targetName,
@@ -437,6 +492,10 @@
           timestamp: Date.now(),
           client: getClientInfo()
         });
+
+        if (!skipCleanup) {
+          await cleanupLogs();
+        }
       } catch (e) {
         console.error("寫入日誌失敗：", e);
       }
@@ -464,8 +523,8 @@
             updatedBy: "System",
             client: {
               reason: "dailyReset",
-              sessionId: sessionId,
-              deviceId: deviceId
+              deviceId: deviceId,
+              sessionId: sessionId
             }
           };
         });
@@ -495,7 +554,9 @@
 
     function setButtonsDisabled(disabled) {
       document.querySelectorAll("button").forEach(btn => {
-        btn.disabled = disabled;
+        if (!btn.classList.contains("clear-log-btn")) {
+          btn.disabled = disabled;
+        }
       });
     }
 
@@ -713,6 +774,22 @@
       }
     }
 
+    window.clearLogs = async function() {
+      if (!isAdmin) return;
+
+      const ok = confirm("確定要清除所有歷史紀錄嗎？此動作無法復原。");
+      if (!ok) return;
+
+      try {
+        await set(ref(db, "logs"), null);
+        await writeLog("logs", "清除 Log", "管理員清除所有歷史紀錄", currentUser, true);
+        alert("Log 已清除");
+      } catch (e) {
+        console.error("清除 Log 失敗：", e);
+        alert("清除 Log 失敗，請查看 Console。");
+      }
+    };
+
     people.forEach(name => {
       const personRef = ref(db, "officeStatus/" + name);
 
@@ -737,20 +814,21 @@
           return;
         }
 
-        const sortedLogs = Object.values(data).sort((a, b) => b.timestamp - a.timestamp);
-        const recentLogs = sortedLogs.slice(0, 40);
+        const sortedLogs = Object.values(data).sort((a, b) => {
+          return (b.timestamp || 0) - (a.timestamp || 0);
+        });
+
+        const recentLogs = sortedLogs.slice(0, 60);
 
         logListDiv.innerHTML = recentLogs.map(log => {
           const time = taiwanTimeText(log.timestamp);
           const detailText = log.detail ? ` (${log.detail})` : "";
 
           const client = log.client || {};
-          const deviceText = client.deviceId ? `Device: ${client.deviceId}` : "Device: 無";
-          const sessionText = client.sessionId ? `Session: ${client.sessionId}` : "Session: 無";
-          const keyText = client.keyMask ? `Key: ${client.keyMask}` : "Key: 無";
-          const userText = client.urlUser ? `URL User: ${client.urlUser}` : "URL User: 無";
-          const platformText = client.platform ? `Platform: ${client.platform}` : "";
-          const visibilityText = client.visibilityState ? `Visibility: ${client.visibilityState}` : "";
+          const resolution =
+            client.screenWidth && client.screenHeight
+              ? `${client.screenWidth}x${client.screenHeight}`
+              : "無";
 
           return `
             <div class="log-item">
@@ -762,10 +840,19 @@
                 ${log.action || "更新"}${detailText}
               </div>
               <div class="log-meta">
-                ${deviceText} ｜ ${sessionText} ｜ ${keyText} ｜ ${userText}
+                Device: ${client.deviceId || "無"}
               </div>
               <div class="log-meta">
-                ${platformText} ｜ ${visibilityText}
+                Session: ${client.sessionId || "無"}
+              </div>
+              <div class="log-meta">
+                Key: ${client.keyMask || "無"} ｜ URL User: ${client.urlUser || "無"}
+              </div>
+              <div class="log-meta">
+                Platform: ${client.platform || "無"} ｜ Resolution: ${resolution} ｜ TZ: ${client.timezone || "無"}
+              </div>
+              <div class="log-meta">
+                Visibility: ${client.visibilityState || "無"}
               </div>
             </div>
           `;
